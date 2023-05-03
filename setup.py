@@ -47,8 +47,8 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     include_dirs = [np_inc_dirs],
-    ext_modules = [Extension("dragons/munge/regrid", ["dragons/munge/regrid.c"]),
-                   Extension("dragons/munge/tophat_filter", ["dragons/munge/tophat_filter.c"])],
+    #ext_modules = [Extension("dragons/munge/regrid", ["dragons/munge/regrid.c"]),],
+                   #Extension("dragons/munge/tophat_filter", ["dragons/munge/tophat_filter.c"])
     license="BSD",
     zip_safe=False,
     keywords='dragons',
@@ -67,5 +67,5 @@ setup(
         'Programming Language :: Python :: 3.6',
     ],
     test_suite='tests',
-    use_2to3=True,
+    use_2to3=False,
 )

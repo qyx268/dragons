@@ -3,7 +3,7 @@
 
 """Routines for reading Meraxes output files."""
 
-from ..munge import ndarray_to_dataframe
+#from ..munge import ndarray_to_dataframe
 
 import re
 import numpy as np
@@ -14,6 +14,46 @@ import pandas as pd
 
 
 __meraxes_h = None
+def ndarray_to_dataframe(arr, drop_vectors=False):
+
+    """Convert numpy ndarray to a pandas DataFrame, dealing with N(>1)
+    dimensional datatypes.
+
+    Parameters
+    ----------
+    arr : ndarray
+        Numpy ndarray
+
+    drop_vectors : bool
+        only include single value datatypes in output DataFrame
+
+    Returns
+    -------
+    df : DataFrame
+        Pandas DataFrame
+    """
+
+    # Get a list of all of the columns which are 1D
+    names = []
+    for k, v in arr.dtype.fields.iteritems():
+        if len(v[0].shape) == 0:
+            names.append(k)
+
+    # Create a new dataframe with these columns
+    df = DataFrame(arr[names])
+
+    if not drop_vectors:
+        # Loop through each N(>1)D property and append each dimension as
+        # its own column in the dataframe
+        for k, v in arr.dtype.fields.iteritems():
+            if len(v[0].shape) == 1:
+                for i in range(v[0].shape[0]):
+                    df[k+'_%d' % i] = arr[k][:, i]
+
+    return df
+
+
+
 
 
 def _check_pandas():
@@ -42,7 +82,7 @@ def set_little_h(h=None):
         Little h value.
     """
 
-    if type(h) is str or type(h) is unicode:
+    if type(h) is str or type(h) is str:
         h = read_input_params(h)['Hubble_h']
 
     global __meraxes_h
@@ -302,8 +342,8 @@ def read_input_params(fname, h=None, quiet=False, raw=False):
         h = __meraxes_h
 
     def arr_to_value(d):
-        for k, v in d.iteritems():
-            if v.size is 1:
+        for k, v in d.items():
+            if v.size == 1:
                 try:
                     d[k] = v[0]
                 except IndexError:
@@ -365,7 +405,7 @@ def read_units(fname, quiet=False):
 
     def arr_to_value(d):
         for k, v in d.iteritems():
-            if type(v) is np.ndarray and v.size is 1:
+            if type(v) is np.ndarray and v.size == 1:
                 d[k] = v[0]
 
     def visitunits(name, obj):
@@ -434,7 +474,7 @@ def read_git_info(fname):
     """
 
     with h5.File(fname, 'r') as fin:
-        gitdiff = fin['gitdiff'].value
+        gitdiff = fin['gitdiff'][()]
         gitref = fin['gitdiff'].attrs['gitref'].copy()
 
     return gitref, gitdiff

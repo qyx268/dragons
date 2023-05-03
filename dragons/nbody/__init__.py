@@ -2,4 +2,4 @@
 # -*- coding: utf-8 -*-
 
 from io import *
-from treeflags import TreeFlags
+from .treeflags import TreeFlags
