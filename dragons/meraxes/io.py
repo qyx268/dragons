@@ -202,10 +202,10 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
 
     # Set the galaxy data type
     gal_dtype = None
-    for i_core in xrange(n_cores):
+    for i_core in range(n_cores):
         try:
             if props is not None:
-                gal_dtype = snap_group['Core%d/Galaxies' % i_core].value[list(props)[:]][0].dtype
+                gal_dtype = snap_group['Core%d/Galaxies' % i_core][()][list(props)[:]][0].dtype
             else:
                 gal_dtype = snap_group['Core%d/Galaxies' % i_core].dtype
         except IndexError:
@@ -223,7 +223,7 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
     if ngals > 0:
         counter = 0
         total_read = 0
-        for i_core in xrange(n_cores):
+        for i_core in range(n_cores):
             galaxies = snap_group['Core%d/Galaxies' % i_core]
             core_ngals = galaxies.size
 
@@ -244,7 +244,7 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
                         dest_sel = np.s_[counter:read_ind.shape[0]+counter]
                         bool_sel = np.zeros(core_ngals, 'bool')
                         bool_sel[read_ind] = True
-                        G[dest_sel] = galaxies[bool_sel]
+                        G[dest_sel] = galaxies[bool_sel][list(props)[:]]
 
                         __apply_offsets(G, dest_sel, total_read)
                         counter += read_ind.shape[0]
@@ -404,7 +404,7 @@ def read_units(fname, quiet=False):
     """
 
     def arr_to_value(d):
-        for k, v in d.iteritems():
+        for k, v in d.items():
             if type(v) is np.ndarray and v.size == 1:
                 d[k] = v[0]
 
@@ -420,7 +420,7 @@ def read_units(fname, quiet=False):
 
     def sanitize_dict_strings(d):
         regex = re.compile('(\D\.\S*)|(__.*__)|(__)')
-        for k, v in d.iteritems():
+        for k, v in d.items():
             if type(v) is dict:
                 sanitize_dict_strings(v)
             else:
@@ -711,7 +711,7 @@ def read_firstprogenitor_indices(fname, snapshot, pandas=False):
 
         # calculate the offsets for each core
         prev_core_counter[0] = 0
-        for i_core in xrange(n_cores-1):
+        for i_core in range(n_cores-1):
             prev_core_counter[i_core+1] = \
                 prev_snap_group["Core{:d}/Galaxies".format(i_core)].size
         prev_core_counter = np.cumsum(prev_core_counter)
@@ -721,7 +721,7 @@ def read_firstprogenitor_indices(fname, snapshot, pandas=False):
         # from the output of all cores. Also be sure *not* to update fp indices
         # that = -1.  This has special meaning!
         counter = 0
-        for i_core in xrange(n_cores):
+        for i_core in range(n_cores):
             ds = snap_group["Core{:d}/FirstProgenitorIndices".format(i_core)]
             core_nvals = ds.size
             if core_nvals > 0:
@@ -780,7 +780,7 @@ def read_nextprogenitor_indices(fname, snapshot, pandas=False):
         # from the output of all cores. Also be sure *not* to update np indices
         # that = -1.  This has special meaning!
         counter = 0
-        for i_core in xrange(n_cores):
+        for i_core in range(n_cores):
             ds = snap_group["Core{:d}/NextProgenitorIndices".format(i_core)]
             core_nvals = ds.size
             if core_nvals > 0:
@@ -840,7 +840,7 @@ def read_descendant_indices(fname, snapshot, pandas=False):
 
         # calculate the offsets for each core
         prev_core_counter[0] = 0
-        for i_core in xrange(n_cores-1):
+        for i_core in range(n_cores-1):
             prev_core_counter[i_core+1] = \
                 next_snap_group["Core{:d}/Galaxies".format(i_core)].size
         prev_core_counter = np.cumsum(prev_core_counter)
@@ -850,7 +850,7 @@ def read_descendant_indices(fname, snapshot, pandas=False):
         # the output of all cores. Also be sure *not* to update desc indices
         # that = -1.  This has special meaning!
         counter = 0
-        for i_core in xrange(n_cores):
+        for i_core in range(n_cores):
             ds = snap_group["Core{:d}/DescendantIndices".format(i_core)]
             core_nvals = ds.size
             if core_nvals > 0:
