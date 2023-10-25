@@ -8,60 +8,22 @@
 import re
 import numpy as np
 import h5py as h5
-from astropy import log
 from astropy.table import Table
 import pandas as pd
+import logging
+from pathlib import PurePath
 
 
 __meraxes_h = None
-def ndarray_to_dataframe(arr, drop_vectors=False):
-
-    """Convert numpy ndarray to a pandas DataFrame, dealing with N(>1)
-    dimensional datatypes.
-
-    Parameters
-    ----------
-    arr : ndarray
-        Numpy ndarray
-
-    drop_vectors : bool
-        only include single value datatypes in output DataFrame
-
-    Returns
-    -------
-    df : DataFrame
-        Pandas DataFrame
-    """
-
-    # Get a list of all of the columns which are 1D
-    names = []
-    for k, v in arr.dtype.fields.iteritems():
-        if len(v[0].shape) == 0:
-            names.append(k)
-
-    # Create a new dataframe with these columns
-    df = DataFrame(arr[names])
-
-    if not drop_vectors:
-        # Loop through each N(>1)D property and append each dimension as
-        # its own column in the dataframe
-        for k, v in arr.dtype.fields.iteritems():
-            if len(v[0].shape) == 1:
-                for i in range(v[0].shape[0]):
-                    df[k+'_%d' % i] = arr[k][:, i]
-
-    return df
-
-
-
+logger = logging.getLogger(__name__)
+logger.setLevel("WARNING")
 
 
 def _check_pandas():
     try:
         pd
     except NameError:
-        raise ImportError("The pandas package must be available if"
-                          " pandas=True.")
+        raise ImportError("The pandas package must be available if" " pandas=True.")
 
 
 def set_little_h(h=None):
@@ -82,12 +44,12 @@ def set_little_h(h=None):
         Little h value.
     """
 
-    if type(h) is str or type(h) is str:
-        h = read_input_params(h)['Hubble_h']
+    if type(h) is str or isinstance(h, PurePath):
+        h = read_input_params(h)["Hubble_h"]
 
     global __meraxes_h
 
-    log.info("Setting little h to %.3f for future io calls." % h)
+    logger.info(f"Setting little h to {h} for future io calls.")
 
     if h == 1.0:
         h = None
@@ -97,8 +59,9 @@ def set_little_h(h=None):
     return h
 
 
-def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
-              pandas=False, table=False, h=None, indices=None):
+def read_gals(
+    fname, snapshot=None, props=None, sim_props=False, pandas=False, table=False, h=None, indices=None,
+):
 
     """Read in a Meraxes hdf5 output file.
 
@@ -115,9 +78,6 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
 
     props : list
         A list of galaxy properties requested.  (default: All properties)
-
-    quiet : bool
-        Suppress output info and status messages.  (default: False)
 
     sim_props : bool
         Output some simulation properties as well.  (default = False)
@@ -152,7 +112,7 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
     def __apply_offsets(G, dest_sel, counter):
         # Deal with any indices that need offsets applied
         try:
-            G[dest_sel]['CentralGal'] += counter
+            G[dest_sel]["CentralGal"] += counter
         except ValueError:
             pass
 
@@ -160,11 +120,10 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
         _check_pandas()
 
     if pandas and table:
-        log.error("Both `pandas` and `table` specified.  Please choose one"
-                  " or the other.")
+        logger.error("Both `pandas` and `table` specified.  Please choose one" " or the other.")
 
     # Grab the units and hubble conversions information
-    units = read_units(fname, quiet=quiet)
+    units = read_units(fname)
 
     # Open the file for reading
     fin = h5.File(fname, "r")
@@ -173,30 +132,28 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
     if snapshot is None:
         snapshot = -1
     if snapshot < 0:
-        present_snaps = np.asarray(fin.keys())
-        selection = np.array([(p.find('Snap') == 0) for p in present_snaps])
+        present_snaps = np.asarray(list(fin.keys()))
+        selection = np.array([(p.find("Snap") == 0) for p in present_snaps])
         present_snaps = [int(p[4:]) for p in present_snaps[selection]]
         snapshot = sorted(present_snaps)[snapshot]
 
-    if not quiet:
-        log.info("Reading snapshot %d" % snapshot)
+    logger.info("Reading snapshot %d" % snapshot)
 
     # Select the group for the requested snapshot.
-    snap_group = fin['Snap%03d' % (snapshot)]
+    snap_group = fin["Snap%03d" % (snapshot)]
 
     # How many cores have been used for this run?
-    n_cores = fin.attrs['NCores'][0]
+    n_cores = fin.attrs["NCores"][0]
 
     # Grab the total number of galaxies in this snapshot
-    ngals = snap_group.attrs['NGalaxies'][0]
+    ngals = snap_group.attrs["NGalaxies"][0]
 
     if ngals == 0:
-        raise IndexError("There are no galaxies in snapshot {:d}!"
-                         .format(snapshot))
+        raise IndexError("There are no galaxies in snapshot {:d}!".format(snapshot))
 
     # Reset ngals to be the number of requested galaxies if appropriate
     if indices is not None:
-        indices = np.array(indices, 'i')
+        indices = np.array(indices, "i")
         indices.sort()
         ngals = indices.shape[0]
 
@@ -205,46 +162,52 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
     for i_core in range(n_cores):
         try:
             if props is not None:
-                gal_dtype = snap_group['Core%d/Galaxies' % i_core][()][list(props)[:]][0].dtype
+                gal_dtype = snap_group["Core%d/Galaxies" % i_core][tuple(props)][0].dtype
             else:
-                gal_dtype = snap_group['Core%d/Galaxies' % i_core].dtype
+                gal_dtype = snap_group["Core%d/Galaxies" % i_core].dtype
         except IndexError:
             pass
         if gal_dtype is not None:
             break
 
+    # Newer versions of numpy will return a dtype with no fields if we have
+    # only requested one property.  We need to reconstruct a named dtype for
+    # the direct read below.
+    if gal_dtype.names is None:
+        assert len(props) == 1
+        gal_dtype = snap_group["Core%d/Galaxies" % i_core].dtype[props]
 
     # Create a dataset large enough to hold all of the requested galaxies
     G = np.empty(ngals, dtype=gal_dtype)
-    if not quiet:
-        log.info("Allocated %.1f MB" % (G.itemsize*ngals/1024./1024.))
+    logger.info("Allocated %.1f MB" % (G.itemsize * ngals / 1024.0 / 1024.0))
 
     # Loop through each of the requested groups and read in the galaxies
     if ngals > 0:
         counter = 0
         total_read = 0
         for i_core in range(n_cores):
-            galaxies = snap_group['Core%d/Galaxies' % i_core]
+            galaxies = snap_group["Core%d/Galaxies" % i_core]
             core_ngals = galaxies.size
 
             if core_ngals > 0:
                 if indices is None:
-                    dest_sel = np.s_[counter:core_ngals+counter]
+                    dest_sel = np.s_[counter : core_ngals + counter]
                     galaxies.read_direct(G, dest_sel=dest_sel)
 
                     __apply_offsets(G, dest_sel, counter)
                     counter += core_ngals
 
                 else:
-                    read_ind = np.compress((indices >= total_read) &
-                                           (indices < total_read+core_ngals),
-                                           indices) - total_read
+                    read_ind = (
+                        np.compress((indices >= total_read) & (indices < total_read + core_ngals), indices,)
+                        - total_read
+                    )
 
                     if read_ind.shape[0] > 0:
-                        dest_sel = np.s_[counter:read_ind.shape[0]+counter]
-                        bool_sel = np.zeros(core_ngals, 'bool')
+                        dest_sel = np.s_[counter : read_ind.shape[0] + counter]
+                        bool_sel = np.zeros(core_ngals, "bool")
                         bool_sel[read_ind] = True
-                        G[dest_sel] = galaxies[bool_sel][list(props)[:]]
+                        G[dest_sel] = galaxies[G.dtype.names][bool_sel]
 
                         __apply_offsets(G, dest_sel, total_read)
                         counter += read_ind.shape[0]
@@ -255,57 +218,48 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
                 break
 
     # Print some checking statistics
-    if not quiet:
-        log.info('Read in %d galaxies.' % len(G))
+    logger.info("Read in %d galaxies." % len(G))
 
     # Apply any Hubble scalings
     if h is not None:
         h = float(h)
-        h_conv = units['HubbleConversions']
-        if not quiet:
-            log.info("Scaling galaxy properties to h = %.3f" % h)
+        h_conv = units["HubbleConversions"]
+        logger.info("Scaling galaxy properties to h = %.3f" % h)
         for p in gal_dtype.names:
             try:
                 conversion = h_conv[p]
             except KeyError:
-                log.warn("Unrecognised galaxy property %s - assuming no "
-                         "scaling with Hubble const!" % p)
-            if conversion.lower() != 'none':
+                logger.warn("Unrecognised galaxy property %s - assuming no " "scaling with Hubble const!" % p)
+            if conversion.lower() != "none":
                 try:
-                    G[p] = eval(conversion, dict(v=G[p], h=h, log10=np.log10,
-                                                 __builtins__={}))
+                    G[p] = eval(conversion, dict(v=G[p], h=h, log10=np.log10, __builtins__={}))
                 except:
-                    log.error("Failed to parse conversion string `%s` for unit"
-                              " %s" % (conversion, p))
+                    logger.error("Failed to parse conversion string `%s` for unit" " %s" % (conversion, p))
 
     # If requested convert the numpy array into a pandas dataframe
     if pandas:
-        if not quiet:
-            log.info("Converting to pandas DataFrame...")
+        logger.info("Converting to pandas DataFrame...")
         G = ndarray_to_dataframe(G)
-        regex = re.compile('_\d*$')
+        regex = re.compile("_\d*$")
         # attach the units to each column
         for k in G.columns:
             try:
-                G[k].unit = units[re.sub(regex, '', k, 1)]
+                G[k].unit = units[re.sub(regex, "", k, 1)]
             except KeyError:
-                log.warn("Unrecognised galaxy property %s - assuming "
-                         "dimensionless quantitiy!" % k)
+                logger.warn("Unrecognised galaxy property %s - assuming " "dimensionless quantitiy!" % k)
     # else convert to astropy table and attach units
     elif table:
-        if not quiet:
-            log.info("Converting to astropy Table...")
+        logger.info("Converting to astropy Table...")
         G = Table(G, copy=False)
-        for k, v in G.columns.iteritems():
+        for k, v in G.columns.items():
             try:
                 v.unit = units[k]
             except KeyError:
-                log.warn("Unrecognised galaxy property %s - assuming "
-                         "dimensionless quantitiy!" % k)
+                logger.warn("Unrecognised galaxy property %s - assuming " "dimensionless quantitiy!" % k)
 
     # Set some run properties
     if sim_props:
-        properties = read_input_params(fname, h=h, quiet=quiet)
+        properties = read_input_params(fname, h=h)
         properties["Redshift"] = snap_group.attrs["Redshift"]
 
     fin.close()
@@ -316,7 +270,7 @@ def read_gals(fname, snapshot=None, props=None, quiet=False, sim_props=False,
         return G
 
 
-def read_input_params(fname, h=None, quiet=False, raw=False):
+def read_input_params(fname, h=None, raw=False):
     """ Read in the input parameters from a Meraxes hdf5 output file.
 
     Parameters
@@ -342,8 +296,10 @@ def read_input_params(fname, h=None, quiet=False, raw=False):
         h = __meraxes_h
 
     def arr_to_value(d):
-        for k, v in d.items():
-            if v.size == 1:
+        for k, v in list(d.items()):
+            if isinstance(v, np.bytes_):
+                d[k] = str(v.astype(np.str_))
+            elif v.size == 1:
                 try:
                     d[k] = v[0]
                 except IndexError:
@@ -351,43 +307,39 @@ def read_input_params(fname, h=None, quiet=False, raw=False):
 
     def visitfunc(name, obj):
         if isinstance(obj, h5.Group):
-            props_dict[name] = dict(obj.attrs.items())
+            props_dict[name] = dict(list(obj.attrs.items()))
             arr_to_value(props_dict[name])
 
-    if not quiet:
-        log.info("Reading input params...")
+    logger.info("Reading input params...")
 
     # Open the file for reading
-    fin = h5.File(fname, 'r')
+    fin = h5.File(fname, "r")
 
-    group = fin['InputParams']
+    group = fin["InputParams"]
 
-    props_dict = dict(group.attrs.items())
+    props_dict = dict(list(group.attrs.items()))
     arr_to_value(props_dict)
     group.visititems(visitfunc)
 
     # Update some properties
     if h is not None:
-        if not quiet:
-            log.info("Scaling params to h = %.3f" % h)
-        props_dict['BoxSize'] = group.attrs['BoxSize'][0] / h
-        props_dict['PartMass'] = group.attrs['PartMass'][0] / h
+        logger.info("Scaling params to h = %.3f" % h)
+        props_dict["BoxSize"] = group.attrs["BoxSize"][0] / h
+        props_dict["PartMass"] = group.attrs["PartMass"][0] / h
 
     # Add extra props
     if not raw:
-        props_dict['Volume'] = props_dict['BoxSize']**3.0 *\
-            props_dict['VolumeFactor']
+        props_dict["Volume"] = props_dict["BoxSize"] ** 3.0 * props_dict["VolumeFactor"]
 
         info = read_git_info(fname)
-        props_dict.update({'model_git_ref': info[0],
-                           'model_git_diff': info[1]})
+        props_dict.update({"model_git_ref": info[0], "model_git_diff": info[1]})
 
     fin.close()
 
     return props_dict
 
 
-def read_units(fname, quiet=False):
+def read_units(fname):
     """ Read in the units and hubble conversion information from a Meraxes hdf5
     output file.
 
@@ -410,38 +362,37 @@ def read_units(fname, quiet=False):
 
     def visitunits(name, obj):
         if isinstance(obj, h5.Group):
-            units_dict[name] = dict(obj.attrs.items())
+            units_dict[name] = dict(list(obj.attrs.items()))
             arr_to_value(units_dict[name])
 
     def visitconv(name, obj):
         if isinstance(obj, h5.Group):
-            hubble_conv_dict[name] = dict(obj.attrs.items())
+            hubble_conv_dict[name] = dict(list(obj.attrs.items()))
             arr_to_value(hubble_conv_dict[name])
 
     def sanitize_dict_strings(d):
-        regex = re.compile('(\D\.\S*)|(__.*__)|(__)')
+        regex = re.compile("(\D\.\S*)|(__.*__)|(__)")
         for k, v in d.items():
             if type(v) is dict:
                 sanitize_dict_strings(v)
             else:
-                v = v.decode('ascii')
-                d[k] = re.sub(regex, '', v)
+                v = v.decode("ascii")
+                d[k] = re.sub(regex, "", v)
 
-    if not quiet:
-        log.info("Reading units...")
+    logger.info("Reading units...")
 
     # Open the file for reading
-    fin = h5.File(fname, 'r')
+    fin = h5.File(fname, "r")
 
     # Read the units
-    for name in ['Units', 'HubbleConversions']:
+    for name in ["Units", "HubbleConversions"]:
         group = fin[name]
-        if name == 'Units':
-            units_dict = dict(group.attrs.items())
+        if name == "Units":
+            units_dict = dict(list(group.attrs.items()))
             arr_to_value(units_dict)
             group.visititems(visitunits)
-        if name == 'HubbleConversions':
-            hubble_conv_dict = dict(group.attrs.items())
+        if name == "HubbleConversions":
+            hubble_conv_dict = dict(list(group.attrs.items()))
             arr_to_value(hubble_conv_dict)
             group.visititems(visitconv)
 
@@ -473,9 +424,9 @@ def read_git_info(fname):
         git diff of the model
     """
 
-    with h5.File(fname, 'r') as fin:
-        gitdiff = fin['gitdiff'][()]
-        gitref = fin['gitdiff'].attrs['gitref'].copy()
+    with h5.File(fname, "r") as fin:
+        gitdiff = fin["gitdiff"][()]
+        gitref = fin["gitdiff"].attrs["gitref"].copy()
 
     return gitref, gitdiff
 
@@ -513,22 +464,21 @@ def read_snaplist(fname, h=None):
     snaplist = []
     lt_times = []
 
-    with h5.File(fname, 'r') as fin:
-        for snap in fin.keys():
+    with h5.File(fname, "r") as fin:
+        for snap in list(fin.keys()):
             try:
-                zlist.append(fin[snap].attrs['Redshift'][0])
+                zlist.append(fin[snap].attrs["Redshift"][0])
                 snaplist.append(int(snap[-3:]))
-                lt_times.append(fin[snap].attrs['LTTime'][0])
+                lt_times.append(fin[snap].attrs["LTTime"][0])
             except KeyError:
                 pass
 
     lt_times = np.array(lt_times, dtype=float)
     if h is not None:
-        log.info("Scaling lt_times to h = %.3f" % h)
+        logger.info("Scaling lt_times to h = %.3f" % h)
         lt_times /= h
 
-    return np.array(snaplist, dtype=int), np.array(zlist, dtype=float),\
-        lt_times
+    return np.array(snaplist, dtype=int), np.array(zlist, dtype=float), lt_times
 
 
 def check_for_redshift(fname, redshift, tol=0.1):
@@ -557,7 +507,7 @@ def check_for_redshift(fname, redshift, tol=0.1):
     """
 
     snaps, z, lt_times = read_snaplist(fname)
-    zs = z-redshift
+    zs = z - redshift
 
     w = np.argmin(np.abs(zs))
 
@@ -596,7 +546,7 @@ def check_for_global_xH(fname, xH, tol=0.1):
     """
 
     snaps, z, lt_times = read_snaplist(fname)
-    xH_list = read_global_xH(fname, snaps, quiet=True)
+    xH_list = read_global_xH(fname, snaps)
     xH_list[np.isnan(xH_list)] = -999
     delta_xH = xH - xH_list
 
@@ -627,11 +577,10 @@ def grab_redshift(fname, snapshot):
         Corresponding redshift value
     """
 
-    with h5.File(fname, 'r') as fin:
+    with h5.File(fname, "r") as fin:
         if snapshot < 0:
-            present_snaps = np.asarray(fin.keys())
-            selection = np.array([(p.find('Snap') == 0) for p in
-                                  present_snaps])
+            present_snaps = np.asarray(list(fin.keys()))
+            selection = np.array([(p.find("Snap") == 0) for p in present_snaps])
             present_snaps = [int(p[4:]) for p in present_snaps[selection]]
             snapshot = sorted(present_snaps)[snapshot]
         redshift = fin["Snap{:03d}".format(snapshot)].attrs["Redshift"][0]
@@ -658,9 +607,8 @@ def grab_unsampled_snapshot(fname, snapshot):
         Corresponding unsampled snapshot value
     """
 
-    with h5.File(fname, 'r') as fin:
-        redshift = fin["Snap{:03d}".format(snapshot)]\
-            .attrs["UnsampledSnapshot"][0]
+    with h5.File(fname, "r") as fin:
+        redshift = fin["Snap{:03d}".format(snapshot)].attrs["UnsampledSnapshot"][0]
 
     return redshift
 
@@ -690,7 +638,7 @@ def read_firstprogenitor_indices(fname, snapshot, pandas=False):
     if pandas:
         _check_pandas()
 
-    with h5.File(fname, 'r') as fin:
+    with h5.File(fname, "r") as fin:
 
         # number of cores used for this run
         n_cores = fin.attrs["NCores"][0]
@@ -699,21 +647,20 @@ def read_firstprogenitor_indices(fname, snapshot, pandas=False):
         snap_group = fin["Snap{:03d}".format(snapshot)]
 
         # group for the previous snapshot
-        prev_snap_group = fin["Snap{:03d}".format(snapshot-1)]
+        prev_snap_group = fin["Snap{:03d}".format(snapshot - 1)]
 
         # number of galaxies in this snapshot
         n_gals = snap_group.attrs["NGalaxies"][0]
 
         # malloc the fp_ind array and an array that will hold offsets for
         # each core
-        fp_ind = np.zeros(n_gals, 'i4')
-        prev_core_counter = np.zeros(n_cores, 'i4')
+        fp_ind = np.zeros(n_gals, "i4")
+        prev_core_counter = np.zeros(n_cores, "i4")
 
         # calculate the offsets for each core
         prev_core_counter[0] = 0
-        for i_core in range(n_cores-1):
-            prev_core_counter[i_core+1] = \
-                prev_snap_group["Core{:d}/Galaxies".format(i_core)].size
+        for i_core in range(n_cores - 1):
+            prev_core_counter[i_core + 1] = prev_snap_group["Core{:d}/Galaxies".format(i_core)].size
         prev_core_counter = np.cumsum(prev_core_counter)
 
         # loop through and read in the FirstProgenitorIndices for each core. Be
@@ -725,11 +672,10 @@ def read_firstprogenitor_indices(fname, snapshot, pandas=False):
             ds = snap_group["Core{:d}/FirstProgenitorIndices".format(i_core)]
             core_nvals = ds.size
             if core_nvals > 0:
-                dest_sel = np.s_[counter:core_nvals+counter]
+                dest_sel = np.s_[counter : core_nvals + counter]
                 ds.read_direct(fp_ind, dest_sel=dest_sel)
                 counter += core_nvals
-                fp_ind[dest_sel][fp_ind[dest_sel] > -1] += \
-                    prev_core_counter[i_core]
+                fp_ind[dest_sel][fp_ind[dest_sel] > -1] += prev_core_counter[i_core]
 
     if pandas:
         fp_ind = pd.Series(fp_ind)
@@ -761,7 +707,7 @@ def read_nextprogenitor_indices(fname, snapshot, pandas=False):
     if pandas:
         _check_pandas()
 
-    with h5.File(fname, 'r') as fin:
+    with h5.File(fname, "r") as fin:
 
         # number of cores used for this run
         n_cores = fin.attrs["NCores"][0]
@@ -773,7 +719,7 @@ def read_nextprogenitor_indices(fname, snapshot, pandas=False):
         n_gals = snap_group.attrs["NGalaxies"][0]
 
         # malloc the np_ind array
-        np_ind = np.zeros(n_gals, 'i4')
+        np_ind = np.zeros(n_gals, "i4")
 
         # loop through and read in the NextProgenitorIndices for each core. Be
         # sure to update the value to reflect that we are making one big array
@@ -784,7 +730,7 @@ def read_nextprogenitor_indices(fname, snapshot, pandas=False):
             ds = snap_group["Core{:d}/NextProgenitorIndices".format(i_core)]
             core_nvals = ds.size
             if core_nvals > 0:
-                dest_sel = np.s_[counter:core_nvals+counter]
+                dest_sel = np.s_[counter : core_nvals + counter]
                 ds.read_direct(np_ind, dest_sel=dest_sel)
                 np_ind[dest_sel][np_ind[dest_sel] > -1] += counter
                 counter += core_nvals
@@ -819,7 +765,7 @@ def read_descendant_indices(fname, snapshot, pandas=False):
     if pandas:
         _check_pandas()
 
-    with h5.File(fname, 'r') as fin:
+    with h5.File(fname, "r") as fin:
 
         # number of cores used for this run
         n_cores = fin.attrs["NCores"][0]
@@ -828,21 +774,20 @@ def read_descendant_indices(fname, snapshot, pandas=False):
         snap_group = fin["Snap{:03d}".format(snapshot)]
 
         # group for the next snapshot
-        next_snap_group = fin["Snap{:03d}".format(snapshot+1)]
+        next_snap_group = fin["Snap{:03d}".format(snapshot + 1)]
 
         # number of galaxies in this snapshot
         n_gals = snap_group.attrs["NGalaxies"][0]
 
         # malloc the desc_ind array and an array that will hold offsets for
         # each core
-        desc_ind = np.zeros(n_gals, 'i4')
-        prev_core_counter = np.zeros(n_cores, 'i4')
+        desc_ind = np.zeros(n_gals, "i4")
+        prev_core_counter = np.zeros(n_cores, "i4")
 
         # calculate the offsets for each core
         prev_core_counter[0] = 0
-        for i_core in range(n_cores-1):
-            prev_core_counter[i_core+1] = \
-                next_snap_group["Core{:d}/Galaxies".format(i_core)].size
+        for i_core in range(n_cores - 1):
+            prev_core_counter[i_core + 1] = next_snap_group["Core{:d}/Galaxies".format(i_core)].size
         prev_core_counter = np.cumsum(prev_core_counter)
 
         # loop through and read in the DescendantIndices for each core. Be sure
@@ -854,11 +799,10 @@ def read_descendant_indices(fname, snapshot, pandas=False):
             ds = snap_group["Core{:d}/DescendantIndices".format(i_core)]
             core_nvals = ds.size
             if core_nvals > 0:
-                dest_sel = np.s_[counter:core_nvals+counter]
+                dest_sel = np.s_[counter : core_nvals + counter]
                 ds.read_direct(desc_ind, dest_sel=dest_sel)
                 counter += core_nvals
-                desc_ind[dest_sel][desc_ind[dest_sel] > -1] += \
-                    prev_core_counter[i_core]
+                desc_ind[dest_sel][desc_ind[dest_sel] > -1] += prev_core_counter[i_core]
 
     if pandas:
         desc_ind = pd.Series(desc_ind)
@@ -866,7 +810,7 @@ def read_descendant_indices(fname, snapshot, pandas=False):
     return desc_ind
 
 
-def read_grid(fname, snapshot, name, h=None, h_scaling={}, quiet=False):
+def read_grid(fname, snapshot, name, h=None, h_scaling={}):
 
     """ Read a grid from the Meraxes HDF5 file.
 
@@ -900,7 +844,7 @@ def read_grid(fname, snapshot, name, h=None, h_scaling={}, quiet=False):
     if (h is None) and (__meraxes_h is not None):
         h = __meraxes_h
 
-    with h5.File(fname, 'r') as fin:
+    with h5.File(fname, "r") as fin:
         try:
             grid_dim = fin["InputParams"].attrs["ReionGridDim"][0]
         except KeyError:
@@ -909,34 +853,28 @@ def read_grid(fname, snapshot, name, h=None, h_scaling={}, quiet=False):
         try:
             grid = fin[ds_name][:]
         except KeyError:
-            if not quiet:
-                log.error("No grid called %s found in file %s ."
-                          % (name, fname))
+            logger.error("No grid called %s found in file %s ." % (name, fname))
 
     # Apply any Hubble scalings
     if h is not None:
         h = float(h)
-        units = read_units(fname, quiet=quiet)
-        h_conv = units['HubbleConversions']['Grids']
+        units = read_units(fname)
+        h_conv = units["HubbleConversions"]["Grids"]
 
-        if not quiet:
-            log.info("Scaling grid to h = %.3f" % h)
+        logger.info("Scaling grid to h = %.3f" % h)
         try:
             conversion = h_conv[name]
         except KeyError:
-            log.warn("Unknown scaling for grid %s - assuming no "
-                     "scaling with Hubble const!" % name)
-            conversion = 'None'
+            logger.warn("Unknown scaling for grid %s - assuming no " "scaling with Hubble const!" % name)
+            conversion = "None"
 
-        if conversion.lower() != 'none':
+        if conversion.lower() != "none":
             try:
-                grid = eval(conversion, dict(v=grid, h=h, log10=np.log10,
-                                             __builtins__={}))
+                grid = eval(conversion, dict(v=grid, h=h, log10=np.log10, __builtins__={}))
             except:
-                log.error("Failed to parse conversion string `%s` for unit"
-                          " %s" % (conversion, name))
+                logger.error("Failed to parse conversion string `%s` for unit" " %s" % (conversion, name))
 
-    grid.shape = [grid_dim, ]*3
+    grid.shape = [grid_dim,] * 3
 
     return grid
 
@@ -959,13 +897,12 @@ def list_grids(fname, snapshot):
         A list of the available grids
     """
 
-    with h5.File(fname, 'r') as fin:
+    with h5.File(fname, "r") as fin:
         group_name = "Snap{:03d}/Grids".format(snapshot)
         try:
-            grids = fin[group_name].keys()
+            grids = list(k for k, v in fin[group_name].items() if len(v.shape) == 3)
         except KeyError:
-            log.error("No grids found for snapshot %d in file %s ." %
-                      (snapshot, fname))
+            logger.error("No grids found for snapshot %d in file %s ." % (snapshot, fname))
 
     return grids
 
@@ -995,55 +932,50 @@ def read_ps(fname, snapshot):
         error
     """
 
-    with h5.File(fname, 'r') as fin:
-        ds_name = "Snap{:03d}/PowerSpectrum".format(snapshot)
-        try:
-            ps_nbins = fin[ds_name].attrs["nbins"][0]
-            ps = fin[ds_name][:]
-        except KeyError:
-            log.error("No data called found in file %s ." % (fname))
+    with h5.File(fname, "r") as fp:
+        ps = fp[f"Snap{snapshot:03d}/Grids/PS_data"][:]
+        k = fp[f"Snap{snapshot:03d}/Grids/k_bins"][:]
+        pserr = fp[f"Snap{snapshot:03d}/Grids/PS_error"][:]
 
-    ps.shape = [ps_nbins, 3]
-
-    return ps[:, 0], ps[:, 1], ps[:, 2]
+    return k, ps, pserr
 
 
-def read_size_dist(fname, snapshot):
+#  def read_size_dist(fname, snapshot):
 
-    """ Read region size distribution from the Meraxes HDF5 file.
+#      """ Read region size distribution from the Meraxes HDF5 file.
 
-    Parameters
-    ----------
-    fname : str
-        Full path to input hdf5 master file
+#      Parameters
+#      ----------
+#      fname : str
+#          Full path to input hdf5 master file
 
-    snapshot : int
-        Snapshot from which the region size distribution is to be read
-        from.
+#      snapshot : int
+#          Snapshot from which the region size distribution is to be read
+#          from.
 
-    Returns
-    -------
-    Rval : array
-        R value
+#      Returns
+#      -------
+#      Rval : array
+#          R value
 
-    RdpdR : array
-        RdpdR value
-    """
+#      RdpdR : array
+#          RdpdR value
+#      """
 
-    with h5.File(fname, 'r') as fin:
-        ds_name = "Snap{:03d}/RegionSizeDist".format(snapshot)
-        try:
-            R_nbins = fin[ds_name].attrs["nbins"][0]
-            RdpdR = fin[ds_name][:]
-        except KeyError:
-            log.error("No RegionSizeDist found in file %s ." % (fname))
+#      with h5.File(fname, "r") as fin:
+#          ds_name = "Snap{:03d}/RegionSizeDist".format(snapshot)
+#          try:
+#              R_nbins = fin[ds_name].attrs["nbins"][0]
+#              RdpdR = fin[ds_name][:]
+#          except KeyError:
+#              logger.error("No RegionSizeDist found in file %s ." % (fname))
 
-    RdpdR.shape = [R_nbins, 2]
+#      RdpdR.shape = [R_nbins, 2]
 
-    return RdpdR[:, 0], RdpdR[:, 1]
+#      return RdpdR[:, 0], RdpdR[:, 1]
 
 
-def read_global_xH(fname, snapshot, weight='volume', quiet=False):
+def read_global_xH(fname, snapshot, weight="volume"):
 
     """ Read global xH from the Meraxes HDF5 file.
 
@@ -1066,37 +998,114 @@ def read_global_xH(fname, snapshot, weight='volume', quiet=False):
         Global xH value(s)
     """
 
-    if not hasattr(snapshot, '__len__'):
-        snapshot = [snapshot, ]
+    if not hasattr(snapshot, "__len__"):
+        snapshot = [
+            snapshot,
+        ]
 
-    if weight == 'volume':
-        prop = 'volume_weighted_global_xH'
-    elif weight == 'mass':
-        prop = 'mass_weighted_global_xH'
+    if weight == "volume":
+        prop = "volume_weighted_global_xH"
+    elif weight == "mass":
+        prop = "mass_weighted_global_xH"
     else:
-        raise ValueError('Unrecognized weighting scheme: %s' % weight)
+        raise ValueError("Unrecognized weighting scheme: %s" % weight)
 
     snapshot = np.array(snapshot)
     global_xH = np.zeros(snapshot.size)
 
-    with h5.File(fname, 'r') as fin:
+    with h5.File(fname, "r") as fin:
         for ii, snap in enumerate(snapshot):
             ds_name = "Snap{:03d}/Grids/xH".format(snap)
             try:
                 global_xH[ii] = fin[ds_name].attrs[prop][0]
             except KeyError:
-                if weight == 'volume':
+                if weight == "volume":
                     # This case deals with old style Meraxes file outputs
-                    try: global_xH[ii] = fin[ds_name].attrs['global_xH'][0]
-                    except KeyError: pass
-                    else: continue
+                    try:
+                        global_xH[ii] = fin[ds_name].attrs["global_xH"][0]
+                    except KeyError:
+                        pass
+                    else:
+                        continue
 
                 global_xH[ii] = np.nan
-                if not quiet:
-                    log.error("No global_xH found for snapshot %d in file %s ."
-                              % (snap, fname))
+                logger.warning("No global_xH found for snapshot %d in file %s" % (snap, fname))
 
     if snapshot.size == 1:
         return global_xH[0]
     else:
         return global_xH
+
+
+def read_global_J_21(fname, snapshot):
+
+    """ Read the volume weighted global J_21 from the Meraxes output.
+
+    Parameters
+    ----------
+    fname : str
+        Full path to input hdf5 master file
+
+    snapshot : int or list
+        Snapshot(s) from which the global J_21 is to be read
+        from.
+
+    Returns
+    -------
+    global_J_21 : float or ndarray
+        Global J_21 value(s)
+    """
+
+    if not hasattr(snapshot, "__len__"):
+        snapshot = [
+            snapshot,
+        ]
+
+    snapshot = np.array(snapshot)
+    global_J_21 = np.zeros(snapshot.size)
+
+    # Older versions of the Meraxes output won't have the global J_21 attribute, so we will need to calculate it
+    # ourselves in that case...
+    global_val_exists = False
+    with h5.File(fname, "r") as fin:
+        for k, v in fin.items():
+            if (
+                k.startswith("Snap")
+                and "Grids" in v.keys()
+                and "J_21" in v["Grids"].keys()
+                and "volume_weighted_global_J_21" in v["Grids/J_21"].attrs
+            ):
+                global_val_exists = True
+                break
+
+    if global_val_exists:
+        # The global value has been precalculated. Thanks goodness!
+        with h5.File(fname, "r") as fin:
+            for ii, snap in enumerate(snapshot):
+                ds_name = "Snap{:03d}/Grids/J_21".format(snap)
+                try:
+                    global_J_21[ii] = fin[ds_name].attrs["volume_weighted_global_J_21"][0]
+                except KeyError:
+                    global_J_21[ii] = np.nan
+                    logger.warning("No global_J_21 found for snapshot %d in file %s" % (snap, fname))
+    else:
+        # The global value hasn't been precalculated. We'll need to calculate it ourselves from the grid. Since the grid
+        # may be large we will need to sort the values before summing to try and beat down as much floating point error
+        # as possible. This will be slow for large grids!
+        logger.warning(
+            "No volume_weighted_global_J_21 values found in Meraxes file. Calculating manually (this may "
+            "be slower than expected)..."
+        )
+        with h5.File(fname, "r") as fin:
+            for ii, snap in enumerate(snapshot):
+                ds_name = "Snap{:03d}/Grids/J_21".format(snap)
+                try:
+                    global_J_21[ii] = np.sort(fin[ds_name][:].astype(np.float64)).sum() / float(fin[ds_name].size)
+                except KeyError:
+                    global_J_21[ii] = np.nan
+                    logger.warning("No J_21 grid found for snapshot %d in file %s" % (snap, fname))
+
+    if snapshot.size == 1:
+        return global_J_21[0]
+    else:
+        return global_J_21

@@ -3,7 +3,8 @@
 
 """Tree flags from gbpTrees."""
 
-class TreeFlags():
+
+class TreeFlags:
     """
     Parse tree flags from gbpCode.
 
@@ -27,8 +28,8 @@ class TreeFlags():
                 line = line.split()
                 if len(line) == 0:
                     continue
-                if not line[0].startswith('//') and not line[1].startswith('TTTP'):
-                    self.flags[line[1]] = 2**int(line[2][4:])
+                if not line[0].startswith("//") and not line[1].startswith("TTTP"):
+                    self.flags[line[1]] = 2 ** int(line[2][4:])
 
     def parse(self, num):
         """Parse a number as a combination of gbpTrees flags and return the string
@@ -44,7 +45,7 @@ class TreeFlags():
             The parsed flags separated by '|'.
         """
         match = []
-        for s, v in self.flags.items():
+        for s, v in list(self.flags.items()):
             if (num & v) == v:
                 match.append(s)
         return "|".join(match)

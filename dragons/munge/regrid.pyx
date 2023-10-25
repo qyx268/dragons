@@ -1,11 +1,18 @@
 #cython: boundscheck=False
 #cython: wraparound=False
+#cython: language_level=3
 
 from __future__ import division
+
 import numpy as np
 from tqdm import tqdm
-from astropy import log
+
 cimport numpy as np
+
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel('WARNING')
 
 def regrid(np.ndarray[np.float32_t, ndim=3] old_grid not None,
            int n_cell):
@@ -24,7 +31,7 @@ def regrid(np.ndarray[np.float32_t, ndim=3] old_grid not None,
     """
 
     if n_cell > old_grid.shape[0]:
-        log.warning("regrid function is untested for n_cell > old_grid.shape[0]")
+        logger.warning("regrid function is untested for n_cell > old_grid.shape[0]")
 
     cdef int old_dim = old_grid.shape[0]
     cdef float resample_factor = float(n_cell/old_dim)

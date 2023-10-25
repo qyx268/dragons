@@ -3,51 +3,11 @@
 
 """Generate the full (first progenitor line) history of a galaxy."""
 
-#from ..munge import ndarray_to_dataframe
-from io import read_gals, read_firstprogenitor_indices, read_descendant_indices
+from ..munge import ndarray_to_dataframe
+from .io import read_gals, read_firstprogenitor_indices, read_descendant_indices
 from tqdm import tqdm
 
 import numpy as np
-
-def ndarray_to_dataframe(arr, drop_vectors=False):
-
-    """Convert numpy ndarray to a pandas DataFrame, dealing with N(>1)
-    dimensional datatypes.
-
-    Parameters
-    ----------
-    arr : ndarray
-        Numpy ndarray
-
-    drop_vectors : bool
-        only include single value datatypes in output DataFrame
-
-    Returns
-    -------
-    df : DataFrame
-        Pandas DataFrame
-    """
-
-    # Get a list of all of the columns which are 1D
-    names = []
-    for k, v in arr.dtype.fields.iteritems():
-        if len(v[0].shape) == 0:
-            names.append(k)
-
-    # Create a new dataframe with these columns
-    df = DataFrame(arr[names])
-
-    if not drop_vectors:
-        # Loop through each N(>1)D property and append each dimension as
-        # its own column in the dataframe
-        for k, v in arr.dtype.fields.iteritems():
-            if len(v[0].shape) == 1:
-                for i in range(v[0].shape[0]):
-                    df[k+'_%d' % i] = arr[k][:, i]
-
-    return df
-
-
 
 def galaxy_history(fname, gal_id, snapshot, future_snapshot=-1, pandas=False, props=None):
 
@@ -87,15 +47,14 @@ def galaxy_history(fname, gal_id, snapshot, future_snapshot=-1, pandas=False, pr
         then the galaxy remains until `future_snapshot.`
     """
 
-    gals = read_gals(fname, snapshot=snapshot, props=props, pandas=False,
-                     quiet=True)
+    gals = read_gals(fname, snapshot=snapshot, props=props, pandas=False)
 
     start_ind = np.where(gals["ID"] == gal_id)[0][0]
     merged_snapshot = -1
 
     if future_snapshot == -1:
         future_snapshot = snapshot
-    history = np.zeros(future_snapshot+1, dtype=gals.dtype)
+    history = np.zeros(future_snapshot + 1, dtype=gals.dtype)
 
     history[snapshot] = gals[start_ind]
     ind = read_firstprogenitor_indices(fname, snapshot)[start_ind]
@@ -103,18 +62,17 @@ def galaxy_history(fname, gal_id, snapshot, future_snapshot=-1, pandas=False, pr
     if ind == -1:
         raise Warning("This galaxy has no progenitors!")
 
-    for snap in tqdm(range(snapshot-1, -1, -1)):
-        history[snap] = read_gals(fname, snapshot=snap, pandas=False,
-                                  quiet=True, props=props, indices=[ind])
+    for snap in tqdm(list(range(snapshot - 1, -1, -1))):
+        history[snap] = read_gals(fname, snapshot=snap, pandas=False, props=props, indices=[ind])
         ind = read_firstprogenitor_indices(fname, snap)[ind]
         if ind == -1:
             break
 
     if future_snapshot != snapshot:
         ind = start_ind
-        for snap in tqdm(range(snapshot+1, future_snapshot+1)):
+        for snap in tqdm(list(range(snapshot + 1, future_snapshot + 1))):
             last_ind = ind
-            ind = read_descendant_indices(fname, snap-1)[ind]
+            ind = read_descendant_indices(fname, snap - 1)[ind]
             if ind == -1:
                 break
 
@@ -123,8 +81,7 @@ def galaxy_history(fname, gal_id, snapshot, future_snapshot=-1, pandas=False, pr
                 if fp != last_ind and merged_snapshot == -1:
                     merged_snapshot = snap
 
-            history[snap] = read_gals(fname, snapshot=snap, pandas=False,
-                                      quiet=True, props=props, indices=[ind])
+            history[snap] = read_gals(fname, snapshot=snap, pandas=False, props=props, indices=[ind])
 
     if pandas:
         history = ndarray_to_dataframe(history)

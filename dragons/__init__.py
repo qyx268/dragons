@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-__version__ = '0.2.0'
+import logging
 
-#import munge
-from . import meraxes
-from . import nbody
-from . import plotutils
+from . import meraxes, munge, nbody, plotutils
+from ._version import version as __version__
