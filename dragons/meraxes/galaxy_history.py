@@ -62,7 +62,7 @@ def galaxy_history(fname, gal_id, snapshot, future_snapshot=-1, pandas=False, pr
     if ind == -1:
         raise Warning("This galaxy has no progenitors!")
 
-    for snap in tqdm(list(range(snapshot - 1, -1, -1))):
+    for snap in tqdm(list(range(snapshot - 1, 0, -1))):
         history[snap] = read_gals(fname, snapshot=snap, pandas=False, props=props, indices=[ind])
         ind = read_firstprogenitor_indices(fname, snap)[ind]
         if ind == -1:

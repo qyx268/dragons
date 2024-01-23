@@ -7,7 +7,7 @@ import re
 import numpy as np
 from pandas import DataFrame
 from scipy.stats import describe as sp_describe
-#from .tophat_filter import tophat_filter
+from .tophat_filter import tophat_filter
 
 import logging
 
@@ -223,7 +223,7 @@ def smooth_grid(grid, side_length, radius, filt="tophat"):
     """
 
     # The tuple of implemented filters
-    IMPLEMENTED_FILTERS = ()
+    IMPLEMENTED_FILTERS = ("tophat",)
 
     # Check to see if this filter is implemented
     if filt not in IMPLEMENTED_FILTERS:
@@ -243,8 +243,8 @@ def smooth_grid(grid, side_length, radius, filt="tophat"):
     #  kR = np.sqrt(k[0]**2 + k[1]**2 + k[2]**2)*radius
 
     # Evaluate the convolution
-    #if filt == "tophat":
-    #    tophat_filter(grid, side_length, radius)
+    if filt == "tophat":
+        tophat_filter(grid, side_length, radius)
         #  fgrid = grid * 3.0 * (np.sin(kR)/kR**3 - np.cos(kR)/kR**2)
     #  fgrid[kR == 0] = grid[kR == 0]
 

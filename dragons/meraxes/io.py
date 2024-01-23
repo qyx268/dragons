@@ -3,7 +3,7 @@
 
 """Routines for reading Meraxes output files."""
 
-#from ..munge import ndarray_to_dataframe
+from ..munge import ndarray_to_dataframe
 
 import re
 import numpy as np
